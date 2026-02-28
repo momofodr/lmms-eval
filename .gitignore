@@ -58,3 +58,6 @@ output_features/longvideobench/
 *.pkl
 nohup.out
 env_var.txt
+
+# Ingore the intro.md file first
+progress_record/intro.md

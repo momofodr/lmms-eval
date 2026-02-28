@@ -1060,7 +1060,10 @@ class ConfigurableTask(Task):
         if self.config.process_docs is not None:
             for split in self.dataset:
                 if split in [self.config.training_split, self.config.validation_split, self.config.test_split, self.config.fewshot_split]:
-                    self.dataset[split] = self.config.process_docs(self.dataset[split])
+                    if self.config.metadata is not None:
+                        self.dataset[split] = self.config.process_docs(self.dataset[split], self.config.metadata)
+                    else:
+                        self.dataset[split] = self.config.process_docs(self.dataset[split])
 
         # copy dataset, remove image features
         self.dataset_no_image = self.dataset.copy()

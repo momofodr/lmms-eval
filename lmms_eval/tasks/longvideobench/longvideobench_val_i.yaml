@@ -11,6 +11,9 @@ test_split: validation
 doc_to_visual: !function utils.longvideobench_doc_to_visual_i
 doc_to_text: !function utils.longvideobench_doc_to_text
 doc_to_target: "correct_choice"
+process_docs: !function utils.add_frame_idx_to_docs
+metadata:
+  frame_idx_path: "/path/to/frame_indices.json"
 generation_kwargs:
   max_new_tokens: 32
   temperature: 0

@@ -18,6 +18,26 @@ from PIL import Image
 from lmms_eval.tasks._task_utils.file_utils import generate_submission_file
 
 
+def add_frame_idx_to_docs(dataset, metadata):
+    """Add pre-computed frame indices to each document in the dataset.
+
+    Args:
+        dataset: HuggingFace dataset split.
+        metadata: Dict from YAML metadata, must contain 'frame_idx_path'.
+    """
+    frame_idx_path = metadata["frame_idx_path"]
+    with open(frame_idx_path) as f:
+        frame_indices = json.load(f)
+
+    def _add_frame_idx(doc):
+        doc_id = str(doc["id"])
+        if doc_id in frame_indices:
+            doc["frame_idx"] = frame_indices[doc_id]
+        return doc
+
+    return dataset.map(_add_frame_idx)
+
+
 def timestamp_to_seconds(timestamp):
     # Split the timestamp into hours, minutes, and seconds
     h, m, s = timestamp.split(":")
