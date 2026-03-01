@@ -81,7 +81,8 @@ def main(args):
         embedding = []
         if args.model_name == 'clip':
             input_text = processor(text=text, return_tensors="pt", padding=True, truncation = True).to('cuda' if torch.cuda.is_available() else 'cpu')
-            text_features = model.get_text_features(**input_text)
+            with torch.no_grad():
+                text_features = model.get_text_features(**input_text)
             for i in range(frame_nums):
                 frame = (vr[i * int(fps)]).asnumpy()
                 image = Image.fromarray(frame)
@@ -89,13 +90,19 @@ def main(args):
                 with torch.no_grad():
                     image_features = model.get_image_features(**input_image)
                 clip_score = torch.cosine_similarity(text_features, image_features)
-                embedding.append(image_features.cpu().numpy())
+                embedding.append(image_features.cpu().numpy().tolist())
                 score.append(clip_score.cpu().item())
                 frame_num.append(i * int(fps))
         # score = score-min(score)
-        scores[data['video_id']] = score
-        fn[data['video_id']] = frame_num
-        embs[data['video_id']] = embedding
+        # Use question-level id for longvideobench (multiple questions per video)
+        # TODO: Determine the appropriate key for other datasets
+        if args.dataset_name == "longvideobench":
+            key = data['id']
+        else:
+            raise ValueError(f"Dataset {args.dataset_name} not supported.")
+        scores[key] = score
+        fn[key] = frame_num
+        embs[key] = embedding
     
     output_score_file = os.path.join(output_feature_path, "scores.json")
     output_emb_file = os.path.join(output_feature_path, "embeddings.json")

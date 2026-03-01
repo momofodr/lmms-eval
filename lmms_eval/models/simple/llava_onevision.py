@@ -390,15 +390,21 @@ class Llava_OneVision(lmms):
         return spare_frames  # (frames, height, width, channels)
 
 
-    def load_video_with_ind(self, frame_ind_dict, video_id, video_file, duration, max_num_frames=16):
+    def load_video_with_ind(self, frame_indices, video_file, duration, max_num_frames=16):
+        """Load video frames at specific indices.
 
+        Args:
+            frame_indices: Pre-computed frame indices from process_docs.
+                Falls back to uniform sampling if empty.
+            video_file: Path to the video file.
+            duration: Video duration in seconds.
+            max_num_frames: Max frames for uniform sampling fallback.
+        """
         vr = VideoReader(video_file, ctx=cpu(0), num_threads=1)
         fps = vr.get_avg_fps()
         total_valid_frames = int(duration * fps)
-        if video_id in frame_ind_dict.keys():
-            frame_indices = frame_ind_dict[video_id]
-        else:
-            print(f"Can't find video id {video_id} in frame dict file!! Fall back to uniform sampling.")
+        if not frame_indices:
+            eval_logger.warning("No frame indices provided, falling back to uniform sampling.")
             num_frames = min(max_num_frames, int(duration))
             frame_indices = [int(total_valid_frames / num_frames) * i for i in range(num_frames)]
 
@@ -407,7 +413,6 @@ class Llava_OneVision(lmms):
             frames = frames.numpy()
         else:
             frames = frames.asnumpy()
-        frame_timestamps = [frame_index / fps for frame_index in frame_indices]
 
         return [Image.fromarray(fr).convert("RGB") for fr in frames]
 
@@ -436,26 +441,12 @@ class Llava_OneVision(lmms):
 
         origin_image_aspect_ratio = getattr(self._config, "image_aspect_ratio", None)
 
-        frame_ind_dict = {}
-
-        # Read the frame_dict into the var
-        if os.path.exists(self.frame_ind_file):
-            try:
-                with open(self.frame_ind_file,'r') as f:
-                    frame_ind_dict = json.load(f)
-            except json.JSONDecodeError as e:
-                print(f"❌ Invalid JSON format: {e}")
-            except Exception as e:
-                print(f"❌ Error reading file: {e}")
-        else:
-            print("Can't get frame index file because path not exists!")
-
         for chunk in chunks:
             batched_contexts, all_gen_kwargs, batched_doc_to_visual, batched_doc_id, batched_task, batched_split = zip(*chunk)
             task = batched_task[0]
             split = batched_split[0]
             if self.use_topk:
-                batched_visuals = [self.load_video_with_ind( frame_ind_dict, self.task_dict[task][split][ids]['video_id'], self.task_dict[task][split][ids]['video_path'], self.task_dict[task][split][ids]['duration'], max_num_frames=16) for ids in batched_doc_id]  # [B, N]
+                batched_visuals = [self.load_video_with_ind(self.task_dict[task][split][ids].get('frame_idx', []), self.task_dict[task][split][ids]['video_path'], self.task_dict[task][split][ids]['duration'], max_num_frames=16) for ids in batched_doc_id]  # [B, N]
             else:
                 batched_visuals = [batched_doc_to_visual[0](self.task_dict[task][split][ids]) for ids in batched_doc_id]  # [B, N]
             assert len(batched_visuals) == 1

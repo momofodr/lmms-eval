@@ -98,7 +98,6 @@ def main(args):
 
         N = len(tag_texts)
         score = np.zeros((frame_nums, N)) 
-        frame_num = []
         if args.model_name == 'clip':
             input_text = processor(text=tag_texts, return_tensors="pt", padding=True, truncation = True).to('cuda' if torch.cuda.is_available() else 'cpu')
             with torch.no_grad():
@@ -121,7 +120,7 @@ def main(args):
             score_max = score.max()
             # if score_max - score_min > 1e-8:
             #     score = (score - score_min) / (score_max - score_min)
-            video_result = {'video_id': data['video_id'],
+            video_result = {'id': data['id'],
                 'importance_scores': [key_word_score for phrase, key_word_score in keywords],  # KeyBERT scores
                 'similarity_matrix': score  # CLIP similarity scores (frames, tags)
             }

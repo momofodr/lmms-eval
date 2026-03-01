@@ -23,16 +23,15 @@ def parse_argument():
     return argparser.parse_args()
 
 def compute_pairwise_similarities(embedding_dict):
-    num_videos = len(embedding_dict)
     sim_matrix_dict = {}
-    for video_id in embedding_dict.keys():
-        num_frames = len(embedding_dict[video_id])
-        embeddings = embedding_dict[video_id]
+    for doc_id in embedding_dict.keys():
+        num_frames = len(embedding_dict[doc_id])
+        embeddings = embedding_dict[doc_id]
         sim_matrix = np.zeros((num_frames, num_frames))
         for j in range(num_frames):
             for l in range(num_frames):
                 sim_matrix[j, l] = np.dot(embeddings[j][0], embeddings[l][0]) / (np.linalg.norm(embeddings[j]) * np.linalg.norm(embeddings[l]) + 1e-10)
-        sim_matrix_dict[video_id] = sim_matrix
+        sim_matrix_dict[doc_id] = sim_matrix
     return sim_matrix_dict
 
 def deltaf(max_sim_list, text_frame_scores, pairwise_similarities, candidate_ind, alpha, beta):
@@ -69,11 +68,11 @@ def greedy_submodular_selection(text_frame_scores, pairwise_similarities, frame_
     selected_frames = sorted([frame_nums[idx] for idx in selected_indices])
     return selected_frames
 
-def is_videoid_match(text_frame_scores_dict, frame_nums_dict, pairwise_similarities_dict):
-    if text_frame_scores_dict == frame_nums_dict and frame_nums_dict== pairwise_similarities_dict:
+def is_key_match(text_frame_scores_dict, frame_nums_dict, pairwise_similarities_dict):
+    """Check that all input dicts share the same set of keys."""
+    if set(text_frame_scores_dict.keys()) == set(frame_nums_dict.keys()) == set(pairwise_similarities_dict.keys()):
         return True
-    else:
-        return False
+    return False
 
 def main():
     args = parse_argument()
@@ -125,17 +124,17 @@ def main():
     if len(text_frame_scores_dict) != len(frame_nums_dict) or len(text_frame_scores_dict) != len(pairwise_similarities_dict):
         raise ValueError("Length mismatch among text-frame scores, frame embeddings, frame numbers, and pairwise similarities.")
     
-    if not is_videoid_match(text_frame_scores_dict, frame_nums_dict, pairwise_similarities_dict):
-        raise ValueError("The video IDs in different input files are not the same.")
+    if not is_key_match(text_frame_scores_dict, frame_nums_dict, pairwise_similarities_dict):
+        raise ValueError("The keys in different input files are not the same.")
     selected_frame_nums_dict= {}
 
 
-    for video_id in text_frame_scores_dict.keys():
-        text_frame_scores =  text_frame_scores_dict[video_id]
-        pairwise_similarities = pairwise_similarities_dict[video_id]
-        frame_nums = frame_nums_dict[video_id]
+    for doc_id in text_frame_scores_dict.keys():
+        text_frame_scores = text_frame_scores_dict[doc_id]
+        pairwise_similarities = pairwise_similarities_dict[doc_id]
+        frame_nums = frame_nums_dict[doc_id]
         selected_frame_nums = greedy_submodular_selection(text_frame_scores, pairwise_similarities, frame_nums, args.topk_coef, args.div_coef, args.max_frame_nums)
-        selected_frame_nums_dict[video_id]=(selected_frame_nums)
+        selected_frame_nums_dict[doc_id] = selected_frame_nums
     
     # Step 5: save the selected frame indices
     output_frame_file = os.path.join(args.output_path, f"vfs_selected_frame_nums_{args.topk_coef}_{args.div_coef}_{args.cov_coef}.json")
