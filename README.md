@@ -15,28 +15,29 @@ The evaluation code uses lmms-eval as the underlying framework. For installation
 The `frame-selection` folder contains three core Python scripts that implement the frame extraction and selection pipeline:
 
 ### 1. `feature_extract.py`
-Extracts visual features and computes text-frame similarities from video data.
+Extracts visual features, computes text-frame similarities, and computes semantic-tag similarities from video data.
 
 **Functionality:**
 - Takes video paths and text data as input
 - Uses CLIP model (or alternative models) to extract frame-level features
 - Computes text-frame similarity scores
+- Optionally extracts semantic tags from each text query via KeyBERT and computes frame-tag similarity scores
 - Saves feature embeddings and similarity scores to the `output_features` folder
+- Supports running only the text-score path or only the semantic-tag path with CLI flags
 
 **Input format for LongVideoBench dataset:**
 - `*_lvb_val.json`: Contains text queries and video file paths
 - `*_videos/`: Directory containing the video files
 
 ### 2. `semantic_tags_extract.py`
-Computes similarity scores between frames and semantic tags derived from text queries.
+Compatibility entry point for semantic-tag-only extraction.
 
 **Functionality:**
-- Takes video paths and text data as input
-- Uses pretrained models to extract semantic tags from text query
-- Employs CLIP model (or alternative models) to calculate frame-tag similarity scores
-- Stores results in the `output_features` folder
-- Output is a pickle file of list with each element being a dictionary of {'importance_scores':,
-                'similarity_matrix':}, corresponding to a single video and query task. Here 'importance_scores' is a list of keywords score where similarity matrix is a numpy array of dimensions frame_nums \times num_of_tags 
+- Delegates to `feature_extract.py` and runs only the semantic-tag branch
+- Uses pretrained models to extract semantic tags from text queries
+- Employs CLIP model to calculate frame-tag similarity scores
+- Stores results in the `output_features` folder as `tags_score_with_dict.json`
+- Output is a JSON list where each element is a dictionary containing `importance_scores`, `tag_texts`, `tag_phrases`, `frame_nums`, and `similarity_matrix`
 
 ### 3. `frame_select.py`
 Performs intelligent frame selection using submodular optimization.
@@ -48,8 +49,8 @@ Performs intelligent frame selection using submodular optimization.
 
 ## Workflow
 
-1. Extract frame features and text-frame similarities (`feature_extract.py`)
-2. Compute semantic tag similarities (`semantic_tags_extract.py`)
+1. Extract frame features, text-frame similarities, and optionally semantic tag similarities (`feature_extract.py`)
+2. Optionally run the semantic-only compatibility entry point (`semantic_tags_extract.py`)
 3. Select optimal frames using submodular optimization (`frame_select.py`)
 
 ## Citation
