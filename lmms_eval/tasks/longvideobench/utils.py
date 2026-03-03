@@ -25,9 +25,29 @@ def add_frame_idx_to_docs(dataset, metadata):
         dataset: HuggingFace dataset split.
         metadata: Dict from YAML metadata, must contain 'frame_idx_path'.
     """
-    frame_idx_path = metadata["frame_idx_path"]
+    frame_idx_path = os.path.expandvars(metadata["frame_idx_path"])
+    if "$" in frame_idx_path:
+        raise ValueError(
+            "Unresolved environment variable in metadata.frame_idx_path. "
+            "Set FRAME_IDX_PATH before running evaluation."
+        )
+    if not os.path.exists(frame_idx_path):
+        raise FileNotFoundError(f"Frame index file not found at {frame_idx_path}")
     with open(frame_idx_path) as f:
         frame_indices = json.load(f)
+
+    dataset_ids = {str(doc["id"]) for doc in dataset}
+    missing_ids = dataset_ids - set(frame_indices.keys())
+    eval_logger.info(
+        "Loaded frame index file %s with %d entries for dataset split of %d docs. Missing frame indices for %d docs.",
+        frame_idx_path,
+        len(frame_indices),
+        len(dataset),
+        len(missing_ids),
+    )
+    if missing_ids:
+        sample_missing_ids = sorted(missing_ids)[:10]
+        eval_logger.warning("Sample missing frame_idx ids: %s", sample_missing_ids)
 
     def _add_frame_idx(doc):
         doc_id = str(doc["id"])

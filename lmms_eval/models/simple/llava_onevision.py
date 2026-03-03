@@ -89,7 +89,6 @@ class Llava_OneVision(lmms):
         token_strategy: Optional[str] = "single",  # could be "single" or "multiple", "multiple" denotes adding multiple <image> tokens for each frame
         video_decode_backend: str = "decord",
         use_topk: bool = False,
-        frame_ind_file: str = "output_features/longvideobench/clip/frame_nums.json",
         **kwargs,
     ) -> None:
         super().__init__()
@@ -126,7 +125,6 @@ class Llava_OneVision(lmms):
         self.mm_spatial_pool_mode = mm_spatial_pool_mode
         self.video_decode_backend = video_decode_backend
         self.use_topk = use_topk
-        self.frame_ind_file = frame_ind_file
 
         overwrite_config = {}
         overwrite_config["mm_spatial_pool_stride"] = self.mm_spatial_pool_stride
@@ -402,13 +400,27 @@ class Llava_OneVision(lmms):
         """
         vr = VideoReader(video_file, ctx=cpu(0), num_threads=1)
         fps = vr.get_avg_fps()
-        total_valid_frames = int(duration * fps)
+        total_valid_frames = min(int(duration * fps), len(vr))
         if not frame_indices:
             eval_logger.warning("No frame indices provided, falling back to uniform sampling.")
-            num_frames = min(max_num_frames, int(duration))
+            num_frames = max(1, min(max_num_frames, int(duration), total_valid_frames))
             frame_indices = [int(total_valid_frames / num_frames) * i for i in range(num_frames)]
 
-        frames = vr.get_batch(frame_indices)
+        valid_frame_indices = []
+        max_index = len(vr) - 1
+        for idx in frame_indices:
+            idx = int(idx)
+            if idx < 0 or idx > max_index:
+                eval_logger.warning(
+                    f"Clamping out-of-range frame index {idx} for {video_file} into [0, {max_index}]"
+                )
+            valid_frame_indices.append(min(max(idx, 0), max_index))
+
+        if not valid_frame_indices:
+            eval_logger.warning("No valid frame indices remained after validation, falling back to frame 0.")
+            valid_frame_indices = [0]
+
+        frames = vr.get_batch(valid_frame_indices)
         if isinstance(frames, torch.Tensor):
             frames = frames.numpy()
         else:
