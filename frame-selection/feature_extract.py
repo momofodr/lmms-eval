@@ -37,7 +37,7 @@ def parse_argument():
     parser.add_argument(
         "--semantic_top_n",
         type=int,
-        default=20,
+        default=4,
         help="Maximum number of semantic tags to extract per question.",
     )
     return parser.parse_args()
@@ -233,7 +233,10 @@ def run_extraction(args):
     output_emb_file = os.path.join(output_feature_path, "video_embeddings.json")
     output_frame_file = os.path.join(output_feature_path, "video_frame_nums.json")
     output_q2v_file = os.path.join(output_feature_path, "question_to_video.json")
-    output_tags_score_file = os.path.join(output_feature_path, "tags_score_with_dict.json")
+    output_tags_score_file = os.path.join(
+        output_feature_path,
+        f"tags_score_with_dict_top{args.semantic_top_n}.json",
+    )
 
     logger.info("Starting feature extraction")
     logger.info("Args: %s", vars(args))

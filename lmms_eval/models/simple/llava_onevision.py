@@ -5,6 +5,7 @@ import math
 import re
 import warnings
 from datetime import timedelta
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 import os
 
@@ -13,6 +14,7 @@ import PIL
 from PIL import Image
 import torch
 import transformers
+import yaml
 from accelerate import Accelerator, DistributedType, InitProcessGroupKwargs
 from accelerate.state import AcceleratorState
 from decord import VideoReader, cpu
@@ -428,6 +430,26 @@ class Llava_OneVision(lmms):
 
         return [Image.fromarray(fr).convert("RGB") for fr in frames]
 
+    def _resolve_video_path(self, task, video_path):
+        """Resolve dataset-relative video filenames to absolute cache paths when needed."""
+        if os.path.isabs(video_path) or os.path.exists(video_path):
+            return video_path
+
+        if task.startswith("longvideobench"):
+            task_yaml = Path(__file__).parents[2] / "tasks" / "longvideobench" / "longvideobench_val_i.yaml"
+            with open(task_yaml, "r") as f:
+                raw_data = f.readlines()
+            safe_data = [line for line in raw_data if "!function" not in line]
+            task_cfg = yaml.safe_load("".join(safe_data))
+            cache_name = task_cfg["dataset_kwargs"]["cache_dir"]
+            vid_subdir_name = task_cfg["dataset_kwargs"].get("video_subdir", "videos/")
+            hf_home = os.path.expanduser(os.getenv("HF_HOME", "~/.cache/huggingface/"))
+            cache_dir = os.path.join(hf_home, cache_name, vid_subdir_name)
+            resolved_path = os.path.join(cache_dir, video_path)
+            return resolved_path
+
+        return video_path
+
 
     def generate_until(self, requests: List[Instance]) -> List[str]:
         res = []
@@ -458,7 +480,15 @@ class Llava_OneVision(lmms):
             task = batched_task[0]
             split = batched_split[0]
             if self.use_topk:
-                batched_visuals = [self.load_video_with_ind(self.task_dict[task][split][ids].get('frame_idx', []), self.task_dict[task][split][ids]['video_path'], self.task_dict[task][split][ids]['duration'], max_num_frames=16) for ids in batched_doc_id]  # [B, N]
+                batched_visuals = [
+                    self.load_video_with_ind(
+                        self.task_dict[task][split][ids].get("frame_idx", []),
+                        self._resolve_video_path(task, self.task_dict[task][split][ids]["video_path"]),
+                        self.task_dict[task][split][ids]["duration"],
+                        max_num_frames=16,
+                    )
+                    for ids in batched_doc_id
+                ]  # [B, N]
             else:
                 batched_visuals = [batched_doc_to_visual[0](self.task_dict[task][split][ids]) for ids in batched_doc_id]  # [B, N]
             assert len(batched_visuals) == 1

@@ -7,3 +7,6 @@
 
 ## 03/03
 1. check frame_select.py to see if input are handled correctly
+2. incorporate semantic_tags
+
+## 03/05

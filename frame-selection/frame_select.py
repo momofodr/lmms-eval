@@ -13,6 +13,7 @@ def parse_argument():
     argparser.add_argument("--topk_coef", type=float, default=1.0)
     argparser.add_argument("--div_coef", type=float, default=1.0)
     argparser.add_argument("--cov_coef", type = float, default=1.0)
+    argparser.add_argument("--semantic_top_n", type=int, default=4, help="Number of semantic tags used when generating semantic score file.")
     argparser.add_argument("--output_path", type=str, default = "./output_features", help="Base path to save the selected frame indices.")
     argparser.add_argument("--max_frame_nums", type=int, default=32, help="Maximum number of frames to select per video.")
     argparser.add_argument(
@@ -90,9 +91,13 @@ def greedy_submodular_selection(text_frame_scores, pairwise_similarities, semant
         return sorted(frame_nums)
     selected_indices = []
     max_sim_list = np.zeros(len(text_frame_scores))
-    semantic_vector = np.array(semantic_results["importance_scores"])
     semantic_scores = np.array(semantic_results["similarity_matrix"])
     semantic_scores = np.clip(semantic_scores, 0.0, 1.0)
+    if "importance_scores" in semantic_results:
+        semantic_vector = np.array(semantic_results["importance_scores"])
+    else:        
+        semantic_vector = np.ones(semantic_scores.shape[1])
+    
     for i in range(k):
         best_gain = -float('inf')
         best_index = -1
@@ -144,17 +149,17 @@ def validate_semantic_alignment(question_id, video_key, frame_nums, semantic_res
         )
 
     similarity_matrix = np.asarray(semantic_results.get("similarity_matrix", []))
-    importance_scores = np.asarray(semantic_results.get("importance_scores", []))
+    # importance_scores = np.asarray(semantic_results.get("importance_scores", []))
     if similarity_matrix.ndim != 2:
         raise ValueError(f"Semantic similarity matrix must be 2D for question {question_id}.")
     if similarity_matrix.shape[0] != len(frame_nums):
         raise ValueError(
             f"Semantic similarity matrix row mismatch for question {question_id}: expected {len(frame_nums)}, got {similarity_matrix.shape[0]}"
         )
-    if similarity_matrix.shape[1] != len(importance_scores):
-        raise ValueError(
-            f"Semantic similarity matrix/tag weight mismatch for question {question_id}: expected {similarity_matrix.shape[1]} tag weights, got {len(importance_scores)}"
-        )
+    # if similarity_matrix.shape[1] != len(importance_scores):
+    #     raise ValueError(
+    #         f"Semantic similarity matrix/tag weight mismatch for question {question_id}: expected {similarity_matrix.shape[1]} tag weights, got {len(importance_scores)}"
+    #     )
 
 def main():
     args = parse_argument()
@@ -165,7 +170,10 @@ def main():
     embedding_path = os.path.join(feature_output_path, "video_embeddings.json")
     frame_nums_path = os.path.join(feature_output_path, "video_frame_nums.json")
     question_to_video_path = os.path.join(feature_output_path, "question_to_video.json")
-    semantic_tags_score_path = os.path.join(feature_output_path, "tags_score_with_dict.json")
+    semantic_tags_score_path = os.path.join(
+        feature_output_path,
+        f"tags_score_with_dict_top{args.semantic_top_n}.json",
+    )
     pairwise_sim_score_path = os.path.join(feature_output_path, "pairwise_similarities.json")
 
     logger.info("Starting frame selection")
@@ -246,13 +254,21 @@ def main():
             raise ValueError(
                 f"Length mismatch for question {question_id}: scores={len(text_frame_scores)} frame_nums={len(frame_nums)} pairwise={len(pairwise_similarities)}"
             )
-        logger.info(
-            "Selecting frames for question %s on video %s: frames=%d tags=%d",
-            question_id,
-            video_key,
-            len(frame_nums),
-            len(semantic_results["importance_scores"]),
-        )
+        if "importance_scores" in semantic_results:
+            logger.info(
+                "Selecting frames for question %s on video %s: frames=%d tags=%d",
+                question_id,
+                video_key,
+                len(frame_nums),
+                len(semantic_results["importance_scores"]),
+            )
+        else:
+            logger.info(
+                "Selecting frames for question %s on video %s: frames=%d no tag importance scores",
+                question_id,
+                video_key,
+                len(frame_nums),
+            )
         selected_frame_nums = greedy_submodular_selection(
             text_frame_scores,
             pairwise_similarities,
@@ -274,7 +290,7 @@ def main():
     # Step 5: save the selected frame indices
     output_frame_file = os.path.join(
         feature_output_path,
-        f"vfs_selected_frame_nums_{args.topk_coef}_{args.div_coef}_{args.cov_coef}.json",
+        f"vfs_selected_frame_nums_{args.topk_coef}_{args.div_coef}_{args.cov_coef}_top{args.max_frame_nums}.json",
     )
     with open(output_frame_file, 'w') as f:
         json.dump(selected_frame_nums_dict, f)

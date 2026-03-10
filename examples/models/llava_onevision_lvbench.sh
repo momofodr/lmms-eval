@@ -10,8 +10,6 @@ nohup env CUDA_VISIBLE_DEVICES=2,3,6,7 uv run accelerate launch --num_processes=
     --model_args=pretrained=lmms-lab/llava-onevision-qwen2-7b-ov,conv_template=qwen_1_5,device_map=auto,model_name=llava_qwen \
     --tasks=longvideobench_val_i \
     --batch_size=1 \
+    --log_samples \
     --output_path=./outputs/llava_onevision_longvideobench
 
-echo ""
-echo "=== Recently accessed YAML files (last 10 minutes) ==="
-find /mnt/data/shuoxing/vllm_frame_select -name "*.yaml" -type f -amin -10 2>/dev/null
