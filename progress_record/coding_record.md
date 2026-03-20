@@ -154,3 +154,33 @@ llava_onevision.py
   -> load the selected frames (with index validation)
   -> run inference on the selected-frame subset
 ```
+
+## 03/20: Refine Semantic Tag Extraction Quality and Debugging
+
+Focused on improving the quality and inspectability of semantic tags used in
+frame selection. The main issue was that raw KeyBERT output often produced
+redundant or awkward phrases, making the semantic coverage signal noisy.
+
+### Changes
+
+- **`feature_extract.py`**: Changed semantic extraction to use the question text alone instead of mixing in answer options, so option wording does not introduce noisy tags
+- **`feature_extract.py`**: Reduced KeyBERT phrase length from `(1, 3)` to `(1, 2)` and kept MMR-based diversification to reduce redundant n-gram fragments
+- **`feature_extract.py`**: Added normalization and overlap filtering so near-duplicate tags like `video subtitles`, `subtitles`, and `subtitles appear` are less likely to all survive together
+- **`feature_extract.py`**: Added lightweight filtering for obviously awkward phrase endings and function-word transitions, while avoiding overly aggressive noun/adjective heuristics
+- **`feature_extract.py`**: Added `--semantic_candidate_multiplier` and `--semantic_min_score` so semantic tag quality can be tuned without editing code
+- **`feature_extract.py`**: Changed the semantic output filename to include the tag count, e.g. `tags_score_with_dict_top4.json`
+- **`frame_select.py`**: Updated semantic score loading to match the new `tags_score_with_dict_top{semantic_top_n}.json` naming convention
+- **`feature_extract.py`**: Added preview logging for the first 10 questions, recording the original question text plus extracted tag phrases and their scores in `feature_extract.log`
+
+### Updated Semantic Tag Flow
+
+```
+feature_extract.py
+  -> read question text
+  -> generate a larger candidate keyword pool with KeyBERT
+  -> normalize and filter low-quality or overlapping phrases
+  -> keep top semantic tags
+  -> score frames against those tags with CLIP
+  -> save semantic outputs to tags_score_with_dict_top{N}.json
+  -> log the first 10 question/tag examples for manual inspection
+```

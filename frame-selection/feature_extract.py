@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re
 
 import numpy as np
 import torch
@@ -39,6 +40,18 @@ def parse_argument():
         type=int,
         default=4,
         help="Maximum number of semantic tags to extract per question.",
+    )
+    parser.add_argument(
+        "--semantic_candidate_multiplier",
+        type=int,
+        default=2,
+        help="Multiplier used to request a larger candidate pool before filtering semantic tags.",
+    )
+    parser.add_argument(
+        "--semantic_min_score",
+        type=float,
+        default=0.15,
+        help="Minimum KeyBERT relevance score for keeping a semantic tag.",
     )
     return parser.parse_args()
 
@@ -89,6 +102,110 @@ def setup_logger(output_feature_path):
 
 def format_tag_for_text(keyword_list):
     return [f"a photo containing information about {words}." for words, _ in keyword_list]
+
+
+
+
+
+def normalize_keyword_phrase(phrase):
+    phrase = re.sub(r"\s+", " ", phrase.strip().lower())
+    phrase = re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", phrase)
+    return phrase
+
+
+def has_redundant_overlap(phrase, kept_phrases):
+    tokens = phrase.split()
+    for kept_phrase in kept_phrases:
+        kept_tokens = kept_phrase.split()
+        if phrase == kept_phrase:
+            return True
+        if phrase in kept_phrase or kept_phrase in phrase:
+            return True
+        if len(tokens) > 1 and len(kept_tokens) > 1:
+            overlap = set(tokens) & set(kept_tokens)
+            if len(overlap) >= min(len(tokens), len(kept_tokens)):
+                return True
+    return False
+
+
+def filter_keywords(keywords, min_score, top_n):
+    """Drop low-value or duplicate phrases before scoring them against frames."""
+    banned_phrases = {
+        "video",
+        "question",
+        "answer",
+        "option",
+        "correct answer",
+        "given choices",
+        "option letter",
+    }
+    awkward_tail_tokens = {
+        "appear",
+        "appears",
+        "appearing",
+        "time",
+        "moment",
+        "say",
+        "says",
+        "said",
+        "show",
+        "shows",
+        "showing",
+    }
+    function_words = {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "if",
+        "when",
+        "while",
+        "with",
+        "without",
+        "for",
+        "from",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "by",
+        "as",
+        "than",
+        "that",
+        "which",
+        "who",
+        "what",
+        "where",
+        "why",
+        "how",
+    }
+    filtered = []
+    seen = set()
+    for phrase, score in keywords:
+        normalized = normalize_keyword_phrase(phrase)
+        tokens = normalized.split()
+        if not normalized or normalized in seen:
+            continue
+        if score < min_score:
+            continue
+        if normalized in banned_phrases:
+            continue
+        if len(normalized) <= 2:
+            continue
+        if len(tokens) > 1 and tokens[-1] in awkward_tail_tokens:
+            continue
+        if len(tokens) > 2 and any(token in function_words for token in tokens[1:-1]):
+            continue
+        if has_redundant_overlap(normalized, seen):
+            continue
+        seen.add(normalized)
+        filtered.append((normalized, score))
+        if len(filtered) >= top_n:
+            break
+    return filtered
 
 
 # Semantic results are stored as a JSON list of records, one per question.
@@ -177,14 +294,17 @@ def extract_text_frame_scores(text, embeddings, processor, model, device):
     return scores
 
 
-def extract_semantic_tag_result(text, frame_nums, embeddings, kw_model, processor, model, device, top_n):
+def extract_semantic_tag_result(source_text, frame_nums, embeddings, kw_model, processor, model, device, top_n, candidate_multiplier, min_score):
     # KeyBERT expands the question into several focused phrases before CLIP scoring.
     keywords = kw_model.extract_keywords(
-        text,
+        source_text,
         keyphrase_ngram_range=(1, 3),
         stop_words="english",
-        top_n=top_n,
+        top_n=max(top_n * candidate_multiplier, top_n),
+        use_mmr=True,
+        diversity=0.7,
     )
+    keywords = filter_keywords(keywords, min_score=min_score, top_n=top_n)
     tag_texts = format_tag_for_text(keywords)
     if not tag_texts or not all(isinstance(tag, str) for tag in tag_texts):
         return None
@@ -275,6 +395,8 @@ def run_extraction(args):
 
     save_every = 20
     processed_since_save = 0
+    semantic_preview_limit = 10
+    semantic_preview_count = 0
     logger.info(
         "Resume state loaded: scores=%d videos_with_frames=%d videos_with_embeddings=%d question_to_video=%d semantic_results=%d total_records=%d",
         len(scores),
@@ -288,6 +410,7 @@ def run_extraction(args):
     for idx, data in enumerate(datas, start=1):
         # Each record corresponds to one question-video pair from the dataset annotations.
         text = data["question"]
+        semantic_source_text = data["question"].strip()
         video_key = data["video_path"]
         video_file = os.path.join(video_path, video_key)
         question_id = data["id"]
@@ -333,7 +456,7 @@ def run_extraction(args):
         if need_semantic:
             logger.info("Computing semantic tag scores for question %s on video %s", question_id, video_key)
             semantic_result = extract_semantic_tag_result(
-                text,
+                semantic_source_text,
                 frame_nums,
                 embeddings,
                 kw_model,
@@ -341,10 +464,28 @@ def run_extraction(args):
                 model,
                 device,
                 args.semantic_top_n,
+                args.semantic_candidate_multiplier,
+                args.semantic_min_score,
             )
             if semantic_result is None:
-                logger.warning("No valid semantic tags extracted for question %s: %s", question_id, text)
+                logger.warning("No valid semantic tags extracted for question %s: %s", question_id, semantic_source_text)
             else:
+                if semantic_preview_count < semantic_preview_limit:
+                    preview_pairs = [
+                        f"{phrase} ({score:.3f})"
+                        for phrase, score in zip(
+                            semantic_result["tag_phrases"],
+                            semantic_result["importance_scores"],
+                        )
+                    ]
+                    logger.info(
+                        "Semantic tag preview %d/%d | question=%s | tags=%s",
+                        semantic_preview_count + 1,
+                        semantic_preview_limit,
+                        text,
+                        preview_pairs,
+                    )
+                    semantic_preview_count += 1
                 # Store semantic outputs per question so repeated questions on one video stay distinct.
                 semantic_result["id"] = question_id
                 semantic_result["video_path"] = video_key

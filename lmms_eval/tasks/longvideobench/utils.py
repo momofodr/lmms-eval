@@ -33,6 +33,12 @@ def add_frame_idx_to_docs(dataset, metadata):
         )
     if not os.path.exists(frame_idx_path):
         raise FileNotFoundError(f"Frame index file not found at {frame_idx_path}")
+
+    # Persist the resolved path in task metadata so lmms-eval result/config dumps
+    # record the exact frame-index file used for this run.
+    metadata["frame_idx_path"] = frame_idx_path
+    metadata["frame_idx_filename"] = os.path.basename(frame_idx_path)
+
     with open(frame_idx_path) as f:
         frame_indices = json.load(f)
 
@@ -168,7 +174,6 @@ def longvideobench_doc_to_text(doc, lmms_eval_specific_kwargs):
             raw_data = f.readlines()
             safe_data = []
             for i, line in enumerate(raw_data):
-                # remove function definition since yaml load cannot handle it
                 if "!function" not in line:
                     safe_data.append(line)
         cache_name = yaml.safe_load("".join(safe_data))["dataset_kwargs"]["cache_dir"]
@@ -178,9 +183,10 @@ def longvideobench_doc_to_text(doc, lmms_eval_specific_kwargs):
             subtitles = json.load(f)
 
         max_num_frames = yaml.safe_load("".join(safe_data))["dataset_kwargs"].get("max_num_frames", 16)
-
         frame_timestamps = compute_frame_timestamps(doc["duration"], max_num_frames)
-        interleaved_prefix = insert_subtitles_into_frames(frame_timestamps, subtitles, doc["starting_timestamp_for_subtitles"], doc["duration"])
+        interleaved_prefix = insert_subtitles_into_frames(
+            frame_timestamps, subtitles, doc["starting_timestamp_for_subtitles"], doc["duration"]
+        )
         return f"{pre_prompt}{interleaved_prefix}\n{question}\n{post_prompt}"
     else:
         return f"{pre_prompt}{question}\n{post_prompt}"
